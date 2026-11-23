@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: face-verify
+    runtime: docker
+    plan: free
+    envVars:
+      - key: FV_SECRET_KEY
+        generateValue: true
+      - key: FV_DB_PATH
+        value: /tmp/face_verify.db
+      - key: FV_MATCH_THRESHOLD
+        value: "0.42"

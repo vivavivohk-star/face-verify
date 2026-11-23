@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>face verify</title>
+<style>
+  :root { --paper:#eef3f6; --ink:#000; --soft:#5b7383; --rule:#c9d8e0; --signal:#fff; --good:#15803d; --bad:#b91c1c; }
+  @media (prefers-color-scheme: dark){ :root { --paper:#000; --ink:#e6f2f7; --soft:#8fa9b7; --rule:#1f3440; --signal:#fff; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:"Segoe UI",Arial,sans-serif; min-height:100vh; }
+  .wrap { max-width:640px; margin:0 auto; padding:48px 24px 64px; }
+  .masthead { display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid var(--ink); padding-bottom:12px; }
+  .masthead h1 { margin:0; font-size:1.6rem; font-weight:600; }
+  .intro { color:var(--soft); margin:14px 0 32px; line-height:1.5; }
+  .steps { display:flex; border-bottom:1px solid var(--rule); margin-bottom:28px; }
+  .steps button { flex:1; background:none; border:0; border-bottom:2px solid transparent; padding:10px 0 12px; font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; color:var(--soft); cursor:pointer; text-align:left; }
+  .steps button[aria-selected="true"] { color:var(--ink); border-bottom-color:var(--signal); }
+  label { display:block; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--soft); margin:16px 0 6px; }
+  input[type=text] { width:100%; padding:10px 12px; border:1px solid var(--rule); background:transparent; color:var(--ink); font-size:1rem; }
+  .consent { display:flex; gap:8px; align-items:center; margin:12px 0; font-size:.85rem; color:var(--soft); }
+  .frame { position:relative; width:100%; aspect-ratio:4/3; background:#000; overflow:hidden; margin:16px 0; }
+  video, img { width:100%; height:100%; object-fit:cover; display:block; }
+  .mirror { transform:scaleX(-1); }
+  .reticle { position:absolute; inset:0; border:2px solid rgba(255,255,255,.35); pointer-events:none; }
+  .overlay { position:absolute; inset:0; pointer-events:none; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+  button.btn { padding:10px 16px; border:1px solid var(--rule); background:transparent; color:var(--ink); cursor:pointer; font-size:.9rem; }
+  button.btn.solid { background:var(--ink); color:var(--paper); }
+  button.btn.signal { background:var(--signal); color:#000; border-color:var(--signal); }
+  button.btn.danger { border-color:var(--bad); color:var(--bad); }
+  button.btn:disabled { opacity:.5; cursor:not-allowed; }
+  .hidden { display:none !important; }
+  .note { min-height:1.4em; margin-top:16px; color:var(--soft); }
+  .note.error { color:var(--bad); }
+  .note.ok { color:var(--good); }
+  .cue { display:flex; gap:16px; align-items:center; margin:16px 0; }
+  .guide { width:120px; height:120px; }
+  .guide .face { fill:none; stroke:var(--ink); stroke-width:2.5; }
+  .guide .feature { fill:var(--ink); }
+  .guide .nose { fill:none; stroke:var(--ink); stroke-width:2; }
+  .guide .mouth { fill:none; stroke:var(--ink); stroke-width:2.5; stroke-linecap:round; transform-box:fill-box; transform-origin:center; }
+  .guide .arrow { fill:var(--signal); display:none; }
+  .guide .head { transform-origin:60px 60px; }
+  .guide[data-c="turn_left"] .arrow-left, .guide[data-c="turn_right"] .arrow-right { display:block; }
+  .guide[data-c="turn_left"] .head { animation:turnLeft 2.4s ease-in-out infinite; }
+  .guide[data-c="turn_right"] .head { animation:turnRight 2.4s ease-in-out infinite; }
+  @keyframes turnLeft { 0%,100%{transform:translateX(0)} 50%{transform:translateX(-16px)} }
+  @keyframes turnRight { 0%,100%{transform:translateX(0)} 50%{transform:translateX(16px)} }
+  .meter { height:4px; background:var(--rule); margin-top:16px; }
+  .meter>div { height:100%; width:0; background:var(--signal); transition:width .25s linear; }
+  .result { padding:40px 0 8px; }
+  .result .name { font-size:3.2rem; font-weight:600; margin:10px 0; }
+  .badge { display:inline-block; padding:4px 10px; background:var(--good); color:#fff; font-weight:700; margin-left:8px; }
+  .foot { margin-top:56px; padding-top:14px; border-top:1px solid var(--rule); font-size:.72rem; color:var(--soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="masthead"><h1>face verify</h1><span>class project</span></div>
+    <p class="intro">create a profile with one scan, then confirm it with a live check. no name needed to test; the model figures out who you are.</p>
+  </header>
+  <nav class="steps" role="tablist">
+    <button id="tab-create" role="tab" aria-selected="true"><span>01</span> Create</button>
+    <button id="tab-test" role="tab" aria-selected="false"><span>02</span> Test</button>
+  </nav>
+
+  <section id="panel-create">
+    <label for="create-name">name</label>
+    <input type="text" id="create-name" autocomplete="off" maxlength="40" placeholder="Your name">
+    <div class="consent"><input type="checkbox" id="create-consent"><span>i am the person in the scan</span></div>
+    <div class="frame hidden" id="create-stage">
+      <video id="create-video" autoplay playsinline muted class="mirror"></video>
+      <div class="reticle"></div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="create-open">open camera</button>
+      <button class="btn hidden" id="create-capture">capture</button>
+      <button class="btn hidden" id="create-retake">retake</button>
+      <button class="btn solid" id="create-save" disabled>create profile</button>
+    </div>
+    <div class="note" id="create-msg"></div>
+  </section>
+
+  <section id="panel-test" class="hidden">
+    <div class="cue">
+      <svg class="guide" id="guide" viewBox="0 0 120 120" data-c="turn_left" aria-hidden="true">
+        <g class="head">
+          <circle class="face" cx="60" cy="60" r="40"></circle>
+          <circle class="feature" cx="45" cy="52" r="3"></circle>
+          <circle class="feature" cx="75" cy="52" r="3"></circle>
+          <path class="nose" d="M60 58 L56 72 L64 72"></path>
+          <ellipse class="mouth" cx="60" cy="86" rx="12" ry="3"></ellipse>
+        </g>
+        <path class="arrow arrow-left" d="M6 60 L18 50 L18 70 Z"></path>
+        <path class="arrow arrow-right" d="M114 60 L102 50 L102 70 Z"></path>
+      </svg>
+      <div>
+        <div class="cue-text" id="guide-text">start the scan</div>
+        <div class="cue-sub" id="guide-sub">keep your face in the frame</div>
+        <div class="meter"><div id="progress-bar"></div></div>
+      </div>
+    </div>
+
+    <div class="frame hidden" id="test-stage">
+      <video id="test-video" autoplay playsinline muted class="mirror"></video>
+      <svg class="overlay" id="face-overlay" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+      <div class="reticle"></div>
+    </div>
+    <div class="controls">
+      <button class="btn signal" id="test-start">start scan</button>
+    </div>
+    <div class="note" id="test-msg"></div>
+  </section>
+
+  <section id="panel-hello" class="hidden">
+    <div class="result">
+      <div class="kicker">verified <span class="badge">100%</span></div>
+      <p class="name" id="hello-text"></p>
+      <p>the face matched the profile for this name</p>
+      <div class="controls">
+        <button class="btn solid" id="hello-again">run another test</button>
+        <button class="btn danger" id="hello-delete">delete profile</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">deleting removes the face that is stored</div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function show(el){ el.classList.remove('hidden'); }
+function hide(el){ el.classList.add('hidden'); }
+
+// tabs
+function tab(name){
+  const isCreate = name==='create';
+  $('tab-create').setAttribute('aria-selected', isCreate);
+  $('tab-test').setAttribute('aria-selected', !isCreate);
+  $('panel-create').classList.toggle('hidden', !isCreate);
+  $('panel-test').classList.toggle('hidden', isCreate);
+  $('panel-hello').classList.add('hidden');
+}
+$('tab-create').onclick = ()=>tab('create');
+$('tab-test').onclick = ()=>tab('test');
+
+// create flow
+let createStream=null, createBlob=null;
+$('create-open').onclick = async () => {
+  createStream = await navigator.mediaDevices.getUserMedia({video:true});
+  $('create-video').srcObject = createStream;
+  hide($('create-open')); show($('create-stage')); show($('create-capture'));
+};
+$('create-capture').onclick = () => {
+  const v=$('create-video');
+  const c=document.createElement('canvas');
+  c.width=v.videoWidth; c.height=v.videoHeight;
+  c.getContext('2d').drawImage(v,0,0);
+  c.toBlob(b=>{ createBlob=b; 
+    const img=$('create-preview'); img.src=URL.createObjectURL(b); 
+    // keep video hidden preview instead
+  },'image/jpeg',0.9);
+  // show preview
+  const img=$('create-preview');
+  img.src=c.toDataURL('image/jpeg',0.9);
+  img.classList.remove('hidden');
+  v.classList.add('hidden');
+  hide($('create-capture')); show($('create-retake')); 
+  $('create-save').disabled=false;
+};
+$('create-retake').onclick = () => {
+  const v=$('create-video'); v.classList.remove('hidden');
+  $('create-preview').classList.add('hidden');
+  hide($('create-retake')); show($('create-capture'));
+  $('create-save').disabled=true;
+  createBlob=null;
+};
+$('create-save').onclick = async () => {
+  const name=$('create-name').value.trim();
+  const consent=$('create-consent').checked;
+  if(!consent){ $('create-msg').textContent='confirm consent'; $('create-msg').className='note error'; return; }
+  const v=$('create-video');
+  const c=document.createElement('canvas');
+  c.width=v.videoWidth||640; c.height=v.videoHeight||480;
+  // if preview exists use it
+  let dataUrl;
+  const img=$('create-preview');
+  if(!img.classList.contains('hidden')) dataUrl=img.src;
+  else { c.getContext('2d').drawImage(v,0,0); dataUrl=c.toDataURL('image/jpeg',0.9); }
+  $('create-msg').textContent='saving...';
+  const res=await fetch('/api/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,consent,image:dataUrl})});
+  const j=await res.json();
+  if(j.ok){ $('create-msg').textContent='created '+j.name; $('create-msg').className='note ok'; }
+  else { $('create-msg').textContent=j.error; $('create-msg').className='note error'; }
+};
+
+// test flow
+let testStream=null;
+async function startTest(){
+  $('test-msg').textContent='';
+  $('test-msg').className='note';
+  // get challenge
+  const cres=await fetch('/api/challenge');
+  const cj=await cres.json();
+  if(!cj.ok){ $('test-msg').textContent=cj.error||'failed'; return; }
+  const challenge=cj.challenge;
+  const instruction=cj.instruction;
+  const seconds=cj.seconds;
+  const frames=cj.frames;
+  $('guide').setAttribute('data-c', challenge);
+  $('guide-text').textContent=instruction;
+  $('progress-bar').style.width='0%';
+
+  testStream = await navigator.mediaDevices.getUserMedia({video:true});
+  $('test-video').srcObject=testStream;
+  hide($('test-start')); show($('test-stage'));
+
+  // capture frames
+  const captured=[];
+  const interval= (seconds*1000)/frames;
+  for(let i=0;i<frames;i++){
+    await new Promise(r=>setTimeout(r,interval));
+    const v=$('test-video');
+    const c=document.createElement('canvas');
+    c.width=v.videoWidth||640; c.height=v.videoHeight||480;
+    c.getContext('2d').drawImage(v,0,0);
+    captured.push(c.toDataURL('image/jpeg',0.85));
+    $('progress-bar').style.width = Math.round(((i+1)/frames)*100)+'%';
+  }
+  // stop camera
+  testStream.getTracks().forEach(t=>t.stop());
+  testStream=null;
+
+  $('test-msg').textContent='verifying...';
+  const vres=await fetch('/api/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({frames:captured})});
+  const vj=await vres.json();
+  if(vj.ok){
+    $('hello-text').textContent=vj.name;
+    // switch to hello
+    $('panel-test').classList.add('hidden');
+    $('panel-hello').classList.remove('hidden');
+  } else {
+    $('test-msg').textContent=vj.error;
+    $('test-msg').className='note error';
+    show($('test-start'));
+    hide($('test-stage'));
+  }
+}
+$('test-start').onclick = startTest;
+$('hello-again').onclick = () => { tab('test'); show($('test-start')); hide($('test-stage')); };
+$('hello-delete').onclick = async () => {
+  await fetch('/api/delete',{method:'POST'});
+  tab('create');
+};
+</script>
+</body>
+</html>
+PYEOF
